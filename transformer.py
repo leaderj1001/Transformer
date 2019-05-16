@@ -8,6 +8,9 @@ import math
 from config import get_args
 
 
+# reference
+# https://towardsdatascience.com/how-to-code-the-transformer-in-pytorch-24db27c8f9ec
+# Thank you :)
 class PositionalEncoding(nn.Module):
     def __init__(self, max_len, embedding_dim):
         super(PositionalEncoding, self).__init__()
@@ -141,11 +144,11 @@ class EncoderLayer(nn.Module):
 
     def forward(self, x, x_mask):
         out = self.multi_head_attention(x, x, x, x_mask)
-        out = self.norm1(out) + x
+        out = self.norm1(out + x)
 
         # feed forward layer
         feed_forward_out = self.feed_forward(out)
-        out = self.norm2(feed_forward_out) + out
+        out = self.norm2(feed_forward_out + out)
         return out
 
 
@@ -190,15 +193,15 @@ class DecoderLayer(nn.Module):
 
     def forward(self, encoder_out, x, x_mask, target_mask):
         out = self.multi_head_attention1(x, x, x, target_mask)
-        out = self.norm1(out) + x
+        out = self.norm1(out + x)
 
         multi2_out = out
         out = self.multi_head_attention2(encoder_out, encoder_out, out, x_mask)
-        out = self.norm2(out) + multi2_out
+        out = self.norm2(out + multi2_out)
 
         feed_forward_out = out
         out = self.feed_forward(out)
-        out = self.norm3(feed_forward_out) + out
+        out = self.norm3(feed_forward_out + out)
 
         return out
 
