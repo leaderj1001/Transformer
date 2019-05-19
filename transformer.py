@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-from torch.autograd import Variable
 
 import numpy as np
 import math
@@ -40,11 +39,13 @@ class ScaledDotProductAttention(nn.Module):
 
     def forward(self, query, key, value, mask):
         out = torch.matmul(query, key.transpose(2, 3))
-        out = out * math.sqrt(self.dk)
+        out /= math.sqrt(self.dk)
+
         if mask is not None:
             mask = mask.unsqueeze(1)
-            out = out.masked_fill(mask == 0, -1e9)
+            out = out.masked_fill(mask == 0, -1e10)
         out = self.softmax(out)
+
         if self.dropout_rate > 0.0:
             out = self.dropout(out)
         out = torch.matmul(out, value)
@@ -53,25 +54,26 @@ class ScaledDotProductAttention(nn.Module):
 
 
 class MultiHeadAttention(nn.Module):
-    def __init__(self, head, embedding_dim, dropout):
+    def __init__(self, head, embedding_dim, dropout_rate):
         super(MultiHeadAttention, self).__init__()
         self.embedding_dim = embedding_dim
         self.head = head
+        self.dk = embedding_dim // head
 
-        self.dense_query = nn.Linear(self.embedding_dim, self.embedding_dim)
-        self.dense_key = nn.Linear(self.embedding_dim, self.embedding_dim)
-        self.dense_value = nn.Linear(self.embedding_dim, self.embedding_dim)
+        self.dense_query = nn.Linear(embedding_dim, embedding_dim)
+        self.dense_key = nn.Linear(embedding_dim, embedding_dim)
+        self.dense_value = nn.Linear(embedding_dim, embedding_dim)
 
-        self.scaled_dot_product_attention = ScaledDotProductAttention(self.embedding_dim // self.head, dropout)
+        self.scaled_dot_product_attention = ScaledDotProductAttention(dk=self.dk, dropout_rate=dropout_rate)
 
-        self.dense = nn.Linear(self.embedding_dim, self.embedding_dim)
+        self.dense = nn.Linear(embedding_dim, embedding_dim)
 
     def forward(self, query, key, value, mask=None):
         batch, max_len, embedding_dim = query.size()
 
-        query_out = self.dense_query(query).view(batch, max_len, self.head, embedding_dim // self.head)
-        key_out = self.dense_key(key).view(batch, max_len, self.head, embedding_dim // self.head)
-        value_out = self.dense_value(value).view(batch, max_len, self.head, embedding_dim // self.head)
+        query_out = self.dense_query(query).view(batch, max_len, self.head, self.dk)
+        key_out = self.dense_key(key).view(batch, max_len, self.head, self.dk)
+        value_out = self.dense_value(value).view(batch, max_len, self.head, self.dk)
 
         query_out = query_out.transpose(1, 2)
         key_out = key_out.transpose(1, 2)
@@ -83,18 +85,18 @@ class MultiHeadAttention(nn.Module):
         return out
 
 
-class Norm(nn.Module):
+class LayerNorm(nn.Module):
     def __init__(self, embedding_dim, eps=1e-6):
-        super(Norm, self).__init__()
+        super(LayerNorm, self).__init__()
         self.embedding_dim = embedding_dim
         self.eps = eps
 
-        self.gamma = nn.Parameter(torch.ones(self.embedding_dim))
-        self.beta = nn.Parameter(torch.zeros(self.embedding_dim))
+        self.gamma = nn.Parameter(torch.ones(self.embedding_dim), requires_grad=True)
+        self.beta = nn.Parameter(torch.zeros(self.embedding_dim), requires_grad=True)
 
     def forward(self, x):
-        mean = torch.mean(x, dim=-1, keepdim=True)
-        std = torch.std(x, dim=-1, keepdim=True)
+        mean = x.mean(dim=-1, keepdim=True)
+        std = x.std(dim=-1, keepdim=True)
 
         norm = self.gamma * (x - mean) / (std + self.eps) + self.beta
 
@@ -131,24 +133,24 @@ class FeedForward(nn.Module):
 class EncoderLayer(nn.Module):
     def __init__(self, head, embedding_dim, dropout_rate):
         super(EncoderLayer, self).__init__()
-
         self.head = head
         self.embedding_dim = embedding_dim
         self.dropout_rate = dropout_rate
 
         self.multi_head_attention = MultiHeadAttention(head, embedding_dim, dropout_rate)
 
-        self.norm1 = Norm(embedding_dim)
+        self.layer_norm1 = LayerNorm(embedding_dim)
         self.feed_forward = FeedForward(embedding_dim, dropout_rate)
-        self.norm2 = Norm(embedding_dim)
+        self.layer_norm2 = LayerNorm(embedding_dim)
 
     def forward(self, x, x_mask):
-        out = self.multi_head_attention(x, x, x, x_mask)
-        out = self.norm1(out + x)
+        # multi head attention
+        multi_head_out = self.multi_head_attention(x, x, x, x_mask)
+        out = self.layer_norm1(multi_head_out + x)
 
         # feed forward layer
         feed_forward_out = self.feed_forward(out)
-        out = self.norm2(feed_forward_out + out)
+        out = self.layer_norm2(feed_forward_out + out)
         return out
 
 
@@ -160,19 +162,21 @@ class Encoder(nn.Module):
         self.N = N
         encoderLayers = []
 
-        # Embedding parameters, (max_num of inputs(voca_size), embedding_dim)
+        # Embedding shape, (max_num of inputs(voca_size), embedding_dim)
         self.embedding = nn.Embedding(input_size, embedding_dim)
+
+        # PositionalEncoding
         self.positionalEncoding = PositionalEncoding(max_len, embedding_dim)
 
         for _ in range(N):
             encoderLayers.append(EncoderLayer(head, embedding_dim, dropout_rate))
-
         self.encoder = nn.Sequential(*encoderLayers)
 
     def forward(self, x, x_mask):
-        out = self.embedding(x)
-        out = out + self.positionalEncoding(out)
+        embedding_out = self.embedding(x)
+        out = embedding_out + self.positionalEncoding(embedding_out)
 
+        # N time iteration
         for _ in range(self.N):
             out = self.encoder[_](out, x_mask)
         return out
@@ -185,23 +189,24 @@ class DecoderLayer(nn.Module):
         self.multi_head_attention1 = MultiHeadAttention(head, embedding_dim, dropout_rate)
         self.multi_head_attention2 = MultiHeadAttention(head, embedding_dim, dropout_rate)
 
-        self.norm1 = Norm(embedding_dim)
-        self.norm2 = Norm(embedding_dim)
-        self.norm3 = Norm(embedding_dim)
+        self.layer_norm1 = LayerNorm(embedding_dim)
+        self.layer_norm2 = LayerNorm(embedding_dim)
+        self.layer_norm3 = LayerNorm(embedding_dim)
 
         self.feed_forward = FeedForward(embedding_dim, dropout_rate)
 
-    def forward(self, encoder_out, x, x_mask, target_mask):
-        out = self.multi_head_attention1(x, x, x, target_mask)
-        out = self.norm1(out + x)
+    def forward(self, encoder_out, target, x_mask, target_mask):
+        # multi head attention
+        multi_head_out1 = self.multi_head_attention1(target, target, target, target_mask)
+        out = self.layer_norm1(multi_head_out1 + target)
 
-        multi2_out = out
-        out = self.multi_head_attention2(encoder_out, encoder_out, out, x_mask)
-        out = self.norm2(out + multi2_out)
+        # multi head attention
+        multi_head_out2 = self.multi_head_attention2(encoder_out, encoder_out, out, x_mask)
+        out = self.layer_norm2(multi_head_out2 + out)
 
-        feed_forward_out = out
-        out = self.feed_forward(out)
-        out = self.norm3(feed_forward_out + out)
+        # feed forward layer
+        feed_forward_out = self.feed_forward(out)
+        out = self.layer_norm3(feed_forward_out + out)
 
         return out
 
@@ -221,8 +226,8 @@ class Decoder(nn.Module):
         self.decoder = nn.Sequential(*decoderLayers)
 
     def forward(self, encoder_out, x, x_mask, target_mask):
-        out = self.embedding(x)
-        out = out + self.positionalEncoding(out)
+        embedding_out = self.embedding(x)
+        out = embedding_out + self.positionalEncoding(embedding_out)
 
         for _ in range(self.N):
             out = self.decoder[_](encoder_out, out, x_mask, target_mask)
@@ -230,15 +235,13 @@ class Decoder(nn.Module):
 
 
 class Transformer(nn.Module):
-    def __init__(self, input_size, target_size, max_len, head, embedding_dim, dropout_rate, N, num_classes):
+    def __init__(self, input_size, target_size, max_len, head, embedding_dim, dropout_rate, N):
         super(Transformer, self).__init__()
-
         self.encoder = Encoder(input_size, max_len, head, embedding_dim, dropout_rate, N)
         self.decoder = Decoder(target_size, max_len, head, embedding_dim, dropout_rate, N)
 
         self.out = nn.Sequential(
-            nn.Linear(embedding_dim, num_classes),
-            nn.Softmax(dim=-1)
+            nn.Linear(embedding_dim, target_size),
         )
 
     def forward(self, x, x_mask, target, target_mask):
@@ -266,7 +269,7 @@ def main(args):
     # print(encoder.shape)
     # decoder = model_de(encoder, temp, src_mask, mask)
     # print(decoder.shape)
-    transformer = Transformer(torch.max(temp) + 1, torch.max(temp) + 1, args.max_len, head=8, embedding_dim=512, dropout_rate=0.1, N=6, num_classes=1000)
+    transformer = Transformer(23, 23, args.max_len, head=8, embedding_dim=512, dropout_rate=0.1, N=6)
     print(transformer(temp, src_mask, temp, mask).shape)
 
 
