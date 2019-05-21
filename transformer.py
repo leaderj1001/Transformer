@@ -11,7 +11,7 @@ from config import get_args
 # https://towardsdatascience.com/how-to-code-the-transformer-in-pytorch-24db27c8f9ec
 # Thank you :)
 class PositionalEncoding(nn.Module):
-    def __init__(self, max_len, embedding_dim):
+    def __init__(self, embedding_dim, max_len=128):
         super(PositionalEncoding, self).__init__()
         self.positionalEncoding = torch.zeros((max_len, embedding_dim))
 
@@ -23,7 +23,8 @@ class PositionalEncoding(nn.Module):
         self.register_buffer('positional_encoding', self.positionalEncoding)
 
     def forward(self, x):
-        out = x + self.positionalEncoding
+        sentence_len = x.size(1)
+        out = x + self.positionalEncoding[:sentence_len, :].to(x)
         return out
 
 
@@ -71,15 +72,15 @@ class MultiHeadAttention(nn.Module):
     def forward(self, query, key, value, mask=None):
         batch, max_len, embedding_dim = query.size()
 
-        query_out = self.dense_query(query).view(batch, max_len, self.head, self.dk)
-        key_out = self.dense_key(key).view(batch, max_len, self.head, self.dk)
-        value_out = self.dense_value(value).view(batch, max_len, self.head, self.dk)
+        query_out = self.dense_query(query).view(batch, -1, self.head, self.dk)
+        key_out = self.dense_key(key).view(batch, -1, self.head, self.dk)
+        value_out = self.dense_value(value).view(batch, -1, self.head, self.dk)
 
         query_out = query_out.transpose(1, 2)
         key_out = key_out.transpose(1, 2)
         value_out = value_out.transpose(1, 2)
 
-        out = self.scaled_dot_product_attention(query_out, key_out, value_out, mask).view(batch, max_len, self.embedding_dim)
+        out = self.scaled_dot_product_attention(query_out, key_out, value_out, mask).view(batch, -1, self.embedding_dim)
 
         out = self.dense(out)
         return out
@@ -155,7 +156,7 @@ class EncoderLayer(nn.Module):
 
 
 class Encoder(nn.Module):
-    def __init__(self, input_size, max_len, head, embedding_dim, dropout_rate, N):
+    def __init__(self, input_size, max_len, heads, embedding_dim, dropout_rate, N):
         super(Encoder, self).__init__()
         self.input_size = input_size
         self.max_len = max_len
@@ -166,10 +167,10 @@ class Encoder(nn.Module):
         self.embedding = nn.Embedding(input_size, embedding_dim)
 
         # PositionalEncoding
-        self.positionalEncoding = PositionalEncoding(max_len, embedding_dim)
+        self.positionalEncoding = PositionalEncoding(embedding_dim)
 
         for _ in range(N):
-            encoderLayers.append(EncoderLayer(head, embedding_dim, dropout_rate))
+            encoderLayers.append(EncoderLayer(heads, embedding_dim, dropout_rate))
         self.encoder = nn.Sequential(*encoderLayers)
 
     def forward(self, x, x_mask):
@@ -183,11 +184,11 @@ class Encoder(nn.Module):
 
 
 class DecoderLayer(nn.Module):
-    def __init__(self, head, embedding_dim, dropout_rate):
+    def __init__(self, heads, embedding_dim, dropout_rate):
         super(DecoderLayer, self).__init__()
 
-        self.multi_head_attention1 = MultiHeadAttention(head, embedding_dim, dropout_rate)
-        self.multi_head_attention2 = MultiHeadAttention(head, embedding_dim, dropout_rate)
+        self.multi_head_attention1 = MultiHeadAttention(heads, embedding_dim, dropout_rate)
+        self.multi_head_attention2 = MultiHeadAttention(heads, embedding_dim, dropout_rate)
 
         self.layer_norm1 = LayerNorm(embedding_dim)
         self.layer_norm2 = LayerNorm(embedding_dim)
@@ -201,7 +202,7 @@ class DecoderLayer(nn.Module):
         out = self.layer_norm1(multi_head_out1 + target)
 
         # multi head attention
-        multi_head_out2 = self.multi_head_attention2(encoder_out, encoder_out, out, x_mask)
+        multi_head_out2 = self.multi_head_attention2(out, encoder_out, encoder_out, x_mask)
         out = self.layer_norm2(multi_head_out2 + out)
 
         # feed forward layer
@@ -218,7 +219,7 @@ class Decoder(nn.Module):
         decoderLayers = []
 
         self.embedding = nn.Embedding(input_size, embedding_dim)
-        self.positionalEncoding = PositionalEncoding(max_len, embedding_dim)
+        self.positionalEncoding = PositionalEncoding(embedding_dim)
 
         for _ in range(N):
             decoderLayers.append(DecoderLayer(head, embedding_dim, dropout_rate))
@@ -235,13 +236,13 @@ class Decoder(nn.Module):
 
 
 class Transformer(nn.Module):
-    def __init__(self, input_size, target_size, max_len, head, embedding_dim, dropout_rate, N):
+    def __init__(self, input_vocab, target_vocab, max_len, heads, embedding_dim, dropout_rate, N):
         super(Transformer, self).__init__()
-        self.encoder = Encoder(input_size, max_len, head, embedding_dim, dropout_rate, N)
-        self.decoder = Decoder(target_size, max_len, head, embedding_dim, dropout_rate, N)
+        self.encoder = Encoder(input_vocab, max_len, heads, embedding_dim, dropout_rate, N)
+        self.decoder = Decoder(target_vocab, max_len, heads, embedding_dim, dropout_rate, N)
 
         self.out = nn.Sequential(
-            nn.Linear(embedding_dim, target_size),
+            nn.Linear(embedding_dim, target_vocab),
         )
 
     def forward(self, x, x_mask, target, target_mask):
@@ -252,27 +253,29 @@ class Transformer(nn.Module):
         return out
 
 
-def main(args):
-    temp = torch.LongTensor([
-        [2, 2, 4, 1],
-        [2, 3, 4, 22]
-    ])
-    print(temp.numpy())
-    mask = np.triu(np.ones((2, 4, 4)), k=1).astype('uint8')
-    mask = torch.from_numpy(mask) == 0
-    src_mask = (temp != 1).unsqueeze(-2)
-    print(src_mask.shape)
-    # model_en = Encoder(torch.max(temp) + 1, args.max_len, head=8, embedding_dim=512, dropout_rate=0.1, N=6)
-    # model_de = Decoder(torch.max(temp) + 1, args.max_len, head=8, embedding_dim=512, dropout_rate=0.1)
-    #
-    # encoder = model_en(temp, src_mask)
-    # print(encoder.shape)
-    # decoder = model_de(encoder, temp, src_mask, mask)
-    # print(decoder.shape)
-    transformer = Transformer(23, 23, args.max_len, head=8, embedding_dim=512, dropout_rate=0.1, N=6)
-    print(transformer(temp, src_mask, temp, mask).shape)
-
-
-if __name__ == "__main__":
-    args = get_args()
-    main(args)
+# def main(args):
+#     temp = torch.LongTensor([
+#         [2, 2, 4, 1],
+#         [2, 3, 4, 22]
+#     ])
+#     print(temp.numpy())
+#     mask = np.triu(np.ones((2, 4, 4)), k=1).astype('uint8')
+#     mask = torch.from_numpy(mask) == 0
+#     print(mask)
+#     src_mask = (temp != 1).unsqueeze(-2)
+#     print(src_mask.shape)
+#     # model_en = Encoder(torch.max(temp) + 1, args.max_len, head=8, embedding_dim=512, dropout_rate=0.1, N=6)
+#     # model_de = Decoder(torch.max(temp) + 1, args.max_len, head=8, embedding_dim=512, dropout_rate=0.1)
+#     #
+#     # encoder = model_en(temp, src_mask)
+#     # print(encoder.shape)
+#     # decoder = model_de(encoder, temp, src_mask, mask)
+#     # print(decoder.shape)
+#     # print(args.max_len)
+#     transformer = Transformer(23, 23, args.max_len, heads=8, embedding_dim=512, dropout_rate=0.1, N=6)
+#     print(transformer(temp, src_mask, temp[:, :-1], mask).shape)
+#
+#
+# if __name__ == "__main__":
+#     args = get_args()
+#     main(args)
