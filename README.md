@@ -26,3 +26,10 @@
 
 ## Feed Forward
 ![feedforward](https://user-images.githubusercontent.com/22078438/58099419-8be9f080-7c16-11e9-828e-f015ae3ee575.PNG)
+
+## Todo
+- Positional encoding formula
+- explanation of module
+- example of execute
+- code example
+- code refactoring & translate code
