@@ -253,29 +253,27 @@ class Transformer(nn.Module):
         return out
 
 
-# def main(args):
-#     temp = torch.LongTensor([
-#         [2, 2, 4, 1],
-#         [2, 3, 4, 22]
-#     ])
-#     print(temp.numpy())
-#     mask = np.triu(np.ones((2, 4, 4)), k=1).astype('uint8')
-#     mask = torch.from_numpy(mask) == 0
-#     print(mask)
-#     src_mask = (temp != 1).unsqueeze(-2)
-#     print(src_mask.shape)
-#     # model_en = Encoder(torch.max(temp) + 1, args.max_len, head=8, embedding_dim=512, dropout_rate=0.1, N=6)
-#     # model_de = Decoder(torch.max(temp) + 1, args.max_len, head=8, embedding_dim=512, dropout_rate=0.1)
-#     #
-#     # encoder = model_en(temp, src_mask)
-#     # print(encoder.shape)
-#     # decoder = model_de(encoder, temp, src_mask, mask)
-#     # print(decoder.shape)
-#     # print(args.max_len)
-#     transformer = Transformer(23, 23, args.max_len, heads=8, embedding_dim=512, dropout_rate=0.1, N=6)
-#     print(transformer(temp, src_mask, temp[:, :-1], mask).shape)
+# Test Code
+# def masking(source, target, args):
+#     source_mask = (source != 1).unsqueeze(-2)
+#
+#     target_mask = (target != 1).unsqueeze(-2)
+#     sentence_len = target.size(1)
+#
+#     numpy_mask = torch.tril(torch.ones((1, sentence_len, sentence_len)))
+#     numpy_mask = (numpy_mask == 0).to('cpu')
+#
+#     target_mask = target_mask & numpy_mask
+#
+#     return source_mask, target_mask
 #
 #
-# if __name__ == "__main__":
-#     args = get_args()
-#     main(args)
+# args = get_args()
+# source = torch.randint(high=100, size=(4, args.max_len))
+# target = torch.randint(high=50, size=(4, args.max_len))
+# target_input = target[:, :-1]
+#
+# source_mask, target_mask = masking(source, target_input, args)
+#
+# transformer = Transformer(100, 50, args.max_len, heads=4, embedding_dim=512, dropout_rate=0.1, N=6)
+# print(transformer(source, source_mask, target_input, target_mask).shape)
