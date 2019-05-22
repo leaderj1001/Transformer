@@ -98,7 +98,7 @@ def main(args):
     else:
         train_loader, source, target = load_data_loader(args, mode='train')
 
-    if args.pretrain_model:
+    if args.pretrained:
         print('Load pretrained model ...')
         model = Transformer(len(source.vocab), len(target.vocab), args.max_len, args.heads, args.embedding_dim, args.dropout_rate, args.n).to(device)
         filename = 'best_model_' + str(args.max_len) + '_' + str(args.heads) + '_' + str(args.embedding_dim) + '_' + \
