@@ -24,7 +24,6 @@
 ## Scaled Dot-Product Attention
 ![scaled dot-product](https://user-images.githubusercontent.com/22078438/58099380-796fb700-7c16-11e9-9910-3cd7542ca1ad.PNG)
 - Matrix multiplication and softmax of query and key, we can see how each word affects other words.
-- 
 
 ## Multi-Head Attention
 ![Multi-head](https://user-images.githubusercontent.com/22078438/58099407-855b7900-7c16-11e9-812d-9a699662d91f.PNG)
