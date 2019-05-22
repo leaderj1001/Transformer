@@ -3,8 +3,8 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 
-import numpy as np
 import os
+import numpy as np
 
 from config import get_args
 from preprocess import load_data_loader
@@ -21,9 +21,9 @@ def masking(source, target, args):
     sentence_len = target.size(1)
 
     numpy_mask = torch.tril(torch.ones((1, sentence_len, sentence_len)))
-    numpy_mask = (numpy_mask == 0)
+    numpy_mask = (numpy_mask == 0).to(device)
 
-    target_mask = target_mask & numpy_mask.to(device)
+    target_mask = target_mask & numpy_mask
 
     return source_mask, target_mask
 
@@ -62,31 +62,59 @@ def train(train_loader, model, optimizer, criterion, args):
     return train_loss / float(len(train_loader))
 
 
-def translate(model, args):
+def translate(model, test_loader, target_vocab, args):
     model.eval()
 
+    sentence_list = []
     with torch.no_grad():
-        pass
+        for i, batch_data in enumerate(test_loader):
+            for source in batch_data.source.transpose(0, 1):
+                source = source.unsqueeze(0).to(device)
+                target = torch.ones((1, args.max_len), dtype=torch.int64).to(device)
+                target[:, 0] = 2
+
+                sentence = ''
+                for pos in range(1, args.max_len):
+                    source_mask, target_mask = masking(source, target, args)
+                    output = F.softmax(model(source, source_mask, target, target_mask), dim=-1)
+                    _, target[:, pos] = output[:, pos].data.topk(1)
+
+                    if use_cuda:
+                        word = int(target[:, pos].data.cpu().numpy())
+                    else:
+                        word = int(target[:, pos].numpy())
+                    if word == 3:
+                        print("finished sentence")
+                        break
+                    sentence += target_vocab.itos[word] + ' '
+                sentence_list.append(sentence)
+                print(sentence)
 
 
 def main(args):
-    train_loader, input_vocab, target_vocab = load_data_loader(args)
+    if args.translate:
+        test_loader, source, target = load_data_loader(args, mode='test')
+        train_loader, source, target = load_data_loader(args, mode='train')
+    else:
+        train_loader, source, target = load_data_loader(args, mode='train')
+
     if args.pretrain_model:
-        model = Transformer(input_vocab, target_vocab, args.max_len, args.heads, args.embedding_dim, args.dropout_rate, args.n).to(device)
+        print('Load pretrained model ...')
+        model = Transformer(len(source.vocab), len(target.vocab), args.max_len, args.heads, args.embedding_dim, args.dropout_rate, args.n).to(device)
         filename = 'best_model_' + str(args.max_len) + '_' + str(args.heads) + '_' + str(args.embedding_dim) + '_' + \
                    str(args.n) + '_ckpt.t7'
         checkpoint = torch.load('./checkpoints/' + filename)
         model.load_state_dict(checkpoint['model'])
         start_epoch = checkpoint['epoch']
-
-        if args.translate:
-            translate(model, args)
-            return 0
     else:
-        model = Transformer(input_vocab, target_vocab, args.max_len, args.heads, args.embedding_dim, args.dropout_rate, args.n).to(device)
+        model = Transformer(len(source.vocab), len(target.vocab), args.max_len, args.heads, args.embedding_dim, args.dropout_rate, args.n).to(device)
         start_epoch = 1
 
-    optimizer = optim.SGD(model.parameters(), lr=args.learning_rate, weight_decay=1e-5, momentum=0.9)
+    if args.translate:
+        translate(model, test_loader, target.vocab, args)
+        return 0
+
+    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
     criterion = nn.CrossEntropyLoss().to(device)
 
     for epoch in range(start_epoch, args.epochs + 1):
