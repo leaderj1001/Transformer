@@ -250,26 +250,26 @@ class Transformer(nn.Module):
 
 
 # Test Code
-def masking(source, target, args):
-    source_mask = (source != 1).unsqueeze(-2)
-
-    target_mask = (target != 1).unsqueeze(-2)
-    sentence_len = target.size(1)
-
-    numpy_mask = torch.tril(torch.ones((1, sentence_len, sentence_len)))
-    numpy_mask = (numpy_mask == 0).to('cpu')
-
-    target_mask = target_mask & numpy_mask
-
-    return source_mask, target_mask
-
-
-args = get_args()
-source = torch.randint(high=100, size=(4, args.max_len))
-target = torch.randint(high=50, size=(4, args.max_len))
-target_input = target[:, :-1]
-
-source_mask, target_mask = masking(source, target_input, args)
-
-transformer = Transformer(100, 50, args.max_len, heads=4, embedding_dim=512, dropout_rate=0.1, N=6)
-print(transformer(source, source_mask, target_input, target_mask).shape)
+# def masking(source, target, args):
+#     source_mask = (source != 1).unsqueeze(-2)
+#
+#     target_mask = (target != 1).unsqueeze(-2)
+#     sentence_len = target.size(1)
+#
+#     numpy_mask = torch.tril(torch.ones((1, sentence_len, sentence_len)))
+#     numpy_mask = (numpy_mask == 0).to('cpu')
+#
+#     target_mask = target_mask & numpy_mask
+#
+#     return source_mask, target_mask
+#
+#
+# args = get_args()
+# source = torch.randint(high=100, size=(4, args.max_len))
+# target = torch.randint(high=50, size=(4, args.max_len))
+# target_input = target[:, :-1]
+#
+# source_mask, target_mask = masking(source, target_input, args)
+#
+# transformer = Transformer(100, 50, args.max_len, heads=4, embedding_dim=512, dropout_rate=0.1, N=6)
+# print(transformer(source, source_mask, target_input, target_mask).shape)
