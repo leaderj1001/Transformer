@@ -5,6 +5,8 @@ import re
 import pandas as pd
 import os
 
+from config import get_args
+
 
 def read_data(filename):
     with open(filename, 'r', encoding='utf-8') as f:
@@ -94,12 +96,7 @@ def load_data_loader(args, mode='train'):
     if os.path.isfile('test.csv'):
         os.remove('test.csv')
 
-    # source_pad = source.vocab.stoi['<pad>']
-    # target_bos = target.vocab.stoi['<BOS>']
-    # target_eos = target.vocab.stoi['<EOS>']
-    # target_pad = target.vocab.stoi['<pad>']
-
-    return data_loader, len(source.vocab), len(target.vocab)
+    return data_loader, source, target
 
 
 # if __name__ == "__main__":
