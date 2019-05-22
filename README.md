@@ -1,4 +1,5 @@
 # Attention Is All You Need - Transformer
+[Attention Is All You Need paper](https://arxiv.org/pdf/1706.03762.pdf)
 
 ## Network Architecture
 ![캡처](https://user-images.githubusercontent.com/22078438/58172292-2445ab00-7cd3-11e9-9835-27430e9a33b5.PNG)
@@ -43,6 +44,7 @@
 - Layer normalization was used in the paper.
 - Formula
   - ![CodeCogsEqn (2)](https://user-images.githubusercontent.com/22078438/58171718-91584100-7cd1-11e9-9694-56539b8318c4.gif)
+- [Layer Normalization Paper Reference](https://arxiv.org/pdf/1607.06450.pdf)
   
 ## Masking
 - Encoder
