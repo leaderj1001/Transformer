@@ -69,9 +69,9 @@ class MultiHeadAttention(nn.Module):
         key_out = self.dense_key(key).view(batch, -1, self.head, self.dk).transpose(1, 2)
         value_out = self.dense_value(value).view(batch, -1, self.head, self.dk).transpose(1, 2)
 
-        out = self.scaled_dot_product_attention(query_out, key_out, value_out, mask).view(batch, -1, self.embedding_dim)
-
+        out = self.scaled_dot_product_attention(query_out, key_out, value_out, mask).transpose(1, 2).contiguous().view(batch, -1, self.embedding_dim)
         out = self.dense(out)
+        
         return out
 
 
@@ -139,12 +139,12 @@ class EncoderLayer(nn.Module):
     def forward(self, x, x_mask):
         # multi head attention
         multi_head_out = self.dropout1(self.multi_head_attention(x, x, x, x_mask))
-        out = self.layer_norm1(multi_head_out + x)
+        multi_head_out = self.layer_norm1(multi_head_out + x)
 
         # feed forward layer
-        feed_forward_out = self.dropout2(self.feed_forward(out))
-        out = self.layer_norm2(feed_forward_out + out)
-        return out
+        feed_forward_out = self.dropout2(self.feed_forward(multi_head_out))
+        feed_forward_out = self.layer_norm2(feed_forward_out + multi_head_out)
+        return feed_forward_out
 
 
 class Encoder(nn.Module):
